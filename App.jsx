@@ -188,7 +188,7 @@ function AvatarSVG({ av, scale = 1 }) {
 const DEFAULT_AVATAR = {
   skin: SKIN_TONES[1], hairColor: HAIR_COLORS[0], hairstyle: "bob", eyes: "Happy", brow: "Curved",
   eyeColor: EYE_COLORS[0], outfitColor: OUTFIT_COLORS[0].hex, glasses: "none", hat: "none",
-  background: "peach", accessories: [], holiday: null, aiAvatarUrl: null, floatingEmojis: [],
+  background: "none", accessories: [], holiday: null, aiAvatarUrl: null, floatingEmojis: [],
 };
 
 /* ===========================================================
@@ -529,8 +529,8 @@ function HomeTab({ av, setAv, badgeStats, onOpenSelfProfile, onViewProfile }) {
           <p className="text-xs mt-1" style={{ color: colors.charcoal, opacity: 0.55 }}>{MY_PROFILE_ID}</p>
         </div>
       </div>
-      <div className="relative rounded-3xl flex items-end justify-center gap-3 px-3" style={{ height: 250, background: `linear-gradient(180deg, ${colors.paperDim} 0%, ${colors.paperDim} 65%, ${colors.ink}0d 65%, ${colors.ink}0d 100%)` }}>
-        <div className="relative flex flex-col items-center" style={{ width: 110 }}>
+      <div className="relative rounded-3xl flex items-end justify-between gap-2 px-4" style={{ height: 250, background: `linear-gradient(180deg, ${colors.paperDim} 0%, ${colors.paperDim} 65%, ${colors.ink}0d 65%, ${colors.ink}0d 100%)` }}>
+        <div className="relative flex flex-col items-center shrink-0" style={{ width: 150 }}>
           <div className="absolute flex flex-col items-center" style={{ bottom: "calc(100% + 2px)", width: 140, left: "50%", transform: "translateX(-50%)" }}>
             {editing ? (
               <div className="rounded-2xl px-3 py-2 shadow-md w-full" style={{ background: "#fff" }}>
@@ -544,11 +544,11 @@ function HomeTab({ av, setAv, badgeStats, onOpenSelfProfile, onViewProfile }) {
           <button onClick={onOpenSelfProfile} className="relative hover:scale-105 transition-transform">
             <AvatarDisplay av={av} size={118} svgScale={0.62} rounded="rounded-full" />
           </button>
-          <button onClick={() => setShowCustomize(true)} className="absolute rounded-full flex items-center justify-center" style={{ width: 26, height: 26, background: colors.ink, right: 6, bottom: 8, zIndex: 40 }}>
+          <button onClick={() => setShowCustomize(true)} className="absolute rounded-full flex items-center justify-center" style={{ width: 26, height: 26, background: colors.ink, right: 4, bottom: 6, zIndex: 50, border: "2px solid " + colors.paper }}>
             <span style={{ fontSize: 12 }}>✏️</span>
           </button>
         </div>
-        <div className="pb-2"><Globe rotation={rotation} onPointerDownRotate={onPointerDownRotate} onPinClick={onPinClick} /></div>
+        <div className="pb-2 shrink-0"><Globe rotation={rotation} onPointerDownRotate={onPointerDownRotate} onPinClick={onPinClick} /></div>
       </div>
 
       <div className="pt-5">
