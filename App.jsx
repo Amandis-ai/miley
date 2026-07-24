@@ -493,9 +493,9 @@ function AccessorizePanel({ av, setAv, onClose }) {
   );
 }
 function HomeTab({ av, setAv, badgeStats, onOpenSelfProfile, onViewProfile }) {
-  const [speech, setSpeech] = useState("Hey there! Just came back from London!");
+  const [notice, setNotice] = useState("Hey there! Just came back from London!");
   const [editing, setEditing] = useState(false);
-  const [draftSpeech, setDraftSpeech] = useState(speech);
+  const [draftNotice, setDraftNotice] = useState(notice);
   const [rotation, setRotation] = useState(20);
   const [showCustomize, setShowCustomize] = useState(false);
   const dragRef = useRef({ dragging: false, lastX: 0 });
@@ -506,8 +506,8 @@ function HomeTab({ av, setAv, badgeStats, onOpenSelfProfile, onViewProfile }) {
   const onPointerMove = useCallback((e) => { if (!dragRef.current.dragging) return; const x = getClientX(e); const delta = x - dragRef.current.lastX; dragRef.current.lastX = x; setRotation((r) => r + delta * 0.6); }, []);
   const onPointerUp = useCallback(() => { dragRef.current.dragging = false; window.removeEventListener("mousemove", onPointerMove); window.removeEventListener("mouseup", onPointerUp); window.removeEventListener("touchmove", onPointerMove); window.removeEventListener("touchend", onPointerUp); setTimeout(startAutoRotate, 600); }, [onPointerMove, startAutoRotate]);
   const onPointerDownRotate = (e) => { dragRef.current = { dragging: true, lastX: getClientX(e) }; clearInterval(autoRotateRef.current); window.addEventListener("mousemove", onPointerMove); window.addEventListener("mouseup", onPointerUp); window.addEventListener("touchmove", onPointerMove); window.addEventListener("touchend", onPointerUp); };
-  const onPinClick = (pin) => { const text = `Hey there! Just came back from ${pin.name}!`.slice(0, SPEECH_LIMIT); setSpeech(text); setDraftSpeech(text); };
-  const saveSpeech = () => { setSpeech(draftSpeech.trim().slice(0, SPEECH_LIMIT) || speech); setEditing(false); };
+  const onPinClick = (pin) => { const text = `Hey there! Just came back from ${pin.name}!`.slice(0, SPEECH_LIMIT); setNotice(text); setDraftNotice(text); };
+  const saveNotice = () => { setNotice(draftNotice.trim().slice(0, SPEECH_LIMIT) || notice); setEditing(false); };
 
   return (
     <div className="px-5 lg:px-8">
@@ -517,26 +517,30 @@ function HomeTab({ av, setAv, badgeStats, onOpenSelfProfile, onViewProfile }) {
           <p className="text-xs mt-1" style={{ color: colors.charcoal, opacity: 0.55 }}>{MY_PROFILE_ID}</p>
         </div>
       </div>
-      <div className="relative rounded-3xl flex items-end justify-center px-4" style={{ height: 250, gap: 38, background: `linear-gradient(180deg, ${colors.paperDim} 0%, ${colors.paperDim} 65%, ${colors.ink}0d 65%, ${colors.ink}0d 100%)` }}>
-        <div className="relative flex flex-col items-center shrink-0" style={{ width: 150 }}>
-          <div className="absolute flex flex-col items-center" style={{ bottom: "calc(100% + 2px)", width: 140, left: "50%", transform: "translateX(-50%)" }}>
-            {editing ? (
-              <div className="rounded-2xl px-3 py-2 shadow-md w-full" style={{ background: "#fff" }}>
-                <input autoFocus value={draftSpeech} maxLength={SPEECH_LIMIT} onChange={(e) => setDraftSpeech(e.target.value.slice(0, SPEECH_LIMIT))} onKeyDown={(e) => e.key === "Enter" && saveSpeech()} onBlur={saveSpeech} className="text-xs w-full outline-none" style={{ color: colors.charcoal }} />
-              </div>
-            ) : (
-              <button onClick={() => { setDraftSpeech(speech); setEditing(true); }} className="text-center rounded-2xl px-3 py-2 shadow-md flex items-center gap-1" style={{ background: "#fff" }}><span className="text-xs" style={{ color: colors.charcoal }}>{speech}</span></button>
-            )}
-            <div style={{ width: 0, height: 0, borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderTop: "7px solid #fff", marginTop: -1 }} />
+      <div className="relative rounded-3xl flex flex-col sm:flex-row sm:items-end gap-3 px-4 py-3" style={{ background: `linear-gradient(180deg, ${colors.paperDim} 0%, ${colors.paperDim} 65%, ${colors.ink}0d 65%, ${colors.ink}0d 100%)` }}>
+        <div className="rounded-2xl p-3 sm:self-center sm:flex-1 sm:min-w-0 sm:max-w-[170px]" style={{ background: "#fff", boxShadow: "0 2px 8px rgba(22,35,61,0.08)" }}>
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-sm">📌</span>
+            <span className="text-[10px] uppercase tracking-wide" style={{ color: colors.charcoal, opacity: 0.5, fontFamily: mono }}>Notice Board</span>
           </div>
-          <button onClick={onOpenSelfProfile} className="relative hover:scale-105 transition-transform">
-            <AvatarDisplay av={av} size={118} svgScale={0.62} rounded="rounded-full" />
-          </button>
-          <button onClick={() => setShowCustomize(true)} className="absolute rounded-full flex items-center justify-center" style={{ width: 26, height: 26, background: colors.ink, right: 4, bottom: 6, zIndex: 50, border: "2px solid " + colors.paper }}>
-            <span style={{ fontSize: 12 }}>✏️</span>
-          </button>
+          {editing ? (
+            <input autoFocus value={draftNotice} maxLength={SPEECH_LIMIT} onChange={(e) => setDraftNotice(e.target.value.slice(0, SPEECH_LIMIT))} onKeyDown={(e) => e.key === "Enter" && saveNotice()} onBlur={saveNotice} className="text-xs w-full outline-none" style={{ color: colors.charcoal }} />
+          ) : (
+            <button onClick={() => { setDraftNotice(notice); setEditing(true); }} className="text-xs text-left w-full" style={{ color: colors.charcoal }}>{notice}</button>
+          )}
+          <p className="text-[9px] mt-1" style={{ color: colors.charcoal, opacity: 0.4 }}>Tap to announce an upcoming trip to your network.</p>
         </div>
-        <div className="pb-2 shrink-0"><Globe rotation={rotation} onPointerDownRotate={onPointerDownRotate} onPinClick={onPinClick} /></div>
+        <div className="flex items-end justify-center" style={{ gap: 38 }}>
+          <div className="relative flex flex-col items-center shrink-0" style={{ width: 150 }}>
+            <button onClick={onOpenSelfProfile} className="relative hover:scale-105 transition-transform">
+              <AvatarDisplay av={av} size={118} svgScale={0.62} rounded="rounded-full" />
+            </button>
+            <button onClick={() => setShowCustomize(true)} className="absolute rounded-full flex items-center justify-center" style={{ width: 26, height: 26, background: colors.ink, right: 4, bottom: 6, zIndex: 50, border: "2px solid " + colors.paper }}>
+              <span style={{ fontSize: 12 }}>✏️</span>
+            </button>
+          </div>
+          <div className="pb-2 shrink-0"><Globe rotation={rotation} onPointerDownRotate={onPointerDownRotate} onPinClick={onPinClick} /></div>
+        </div>
       </div>
 
       <div className="pt-5">
