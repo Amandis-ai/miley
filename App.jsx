@@ -385,14 +385,22 @@ const TRAVEL_EMOJIS = ["✈️", "🌴", "🧳", "📸", "🗺️", "⛱️", "�
 const MAX_FLOATING_EMOJIS = 4;
 function FloatingEmojis({ emojis }) {
   if (!emojis || emojis.length === 0) return null;
-  const positions = [
-    { top: "-4%", left: "12%" }, { top: "-14%", left: "50%" }, { top: "-4%", left: "88%" }, { top: "16%", left: "97%" },
-  ];
+  const list = emojis.slice(0, MAX_FLOATING_EMOJIS);
+  const n = list.length;
+  const cx = 50, cy = 6; // center of the arc, in % of the avatar container
+  const rx = 40, ry = 24; // horizontal / vertical radius of the arc, in %
   return (
     <>
-      {emojis.slice(0, MAX_FLOATING_EMOJIS).map((e, i) => (
-        <span key={i} className="absolute figure-bounce" style={{ ...positions[i % positions.length], transform: "translate(-50%,-50%)", fontSize: 22, animationDelay: `${i * 0.3}s`, zIndex: 20, filter: "drop-shadow(0 2px 3px rgba(22,35,61,0.25))" }}>{e}</span>
-      ))}
+      {list.map((e, i) => {
+        // Evenly spread across a 180° arc (left → top → right), symmetric regardless of n.
+        const angleDeg = n === 1 ? 90 : 180 - (180 / (n - 1)) * i;
+        const rad = (angleDeg * Math.PI) / 180;
+        const left = cx + rx * Math.cos(rad);
+        const top = cy - ry * Math.sin(rad);
+        return (
+          <span key={i} className="absolute figure-bounce" style={{ top: `${top}%`, left: `${left}%`, transform: "translate(-50%,-50%)", fontSize: 22, animationDelay: `${i * 0.3}s`, zIndex: 20, filter: "drop-shadow(0 2px 3px rgba(22,35,61,0.25))" }}>{e}</span>
+        );
+      })}
     </>
   );
 }
