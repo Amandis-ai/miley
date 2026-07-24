@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { supabase } from "./supabaseClient.js";
 
 const FONT_IMPORT = `
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
@@ -2419,7 +2420,7 @@ function PassportStamps({ countries, title = "Passport Stamps" }) {
 /* ===========================================================
    MY PROFILE PAGE — all trips (with itineraries) + picture albums
 =========================================================== */
-function MyProfilePage({ myProfile, badgeStats, trips, onBack, onOpenAlbumTab, onOpenTripsTab }) {
+function MyProfilePage({ myProfile, badgeStats, trips, onBack, onOpenAlbumTab, onOpenTripsTab, userEmail, onSignOut }) {
   const albumYears = trips.map(getTripYear);
   const [albumYear, setAlbumYear] = useState(() => (albumYears.length ? Math.max(...albumYears) : new Date().getFullYear()));
   useEffect(() => {
@@ -2440,6 +2441,12 @@ function MyProfilePage({ myProfile, badgeStats, trips, onBack, onOpenAlbumTab, o
             <div className="text-[10px]" style={{ color: colors.charcoal, opacity: 0.5, fontFamily: mono }}>{myProfile.id}</div>
           </div>
         </div>
+        {userEmail && (
+          <div className="px-5 mb-3 flex items-center justify-between rounded-2xl py-2.5" style={{ background: colors.paperDim }}>
+            <div className="text-xs min-w-0 truncate" style={{ color: colors.charcoal }}>Signed in as <span className="font-semibold">{userEmail}</span></div>
+            <button onClick={onSignOut} className="text-xs font-semibold shrink-0 ml-2" style={{ color: colors.coral }}>Sign Out</button>
+          </div>
+        )}
         <div className="px-5 lg:px-8">
           <Badges countries={badgeStats.countries} times={badgeStats.times} percent={badgeStats.percent} />
         </div>
@@ -2713,7 +2720,7 @@ if (typeof document !== "undefined") {
     meta.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover");
   })();
 }
-export default function App() {
+function MainApp({ userEmail, onSignOut }) {
   const [tab, setTab] = useState("home");
   const [trips, setTrips] = useState(seedTrips);
   const [av, setAv] = useState(DEFAULT_AVATAR);
@@ -2773,10 +2780,71 @@ export default function App() {
             onBack={() => setShowMyProfile(false)}
             onOpenAlbumTab={() => { setShowMyProfile(false); setTab("album"); }}
             onOpenTripsTab={() => { setShowMyProfile(false); setTab("trips"); }}
+            userEmail={userEmail}
+            onSignOut={onSignOut}
           />
         )}
         {viewingFriend && <TheirProfilePage person={viewingFriend} status={getStatus(viewingFriend.id)} onBack={() => setViewingFriend(null)} />}
       </div>
     </div>
   );
+}
+
+/* ===========================================================
+   AUTH — real Google sign-in via Supabase
+=========================================================== */
+function AuthScreen({ error }) {
+  const [loading, setLoading] = useState(false);
+  const signIn = async () => {
+    setLoading(true);
+    const { error: err } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+    if (err) setLoading(false);
+  };
+  return (
+    <div className="w-full flex justify-center app-viewport-frame" style={{ background: "#eee7d6" }}>
+      <style>{FONT_IMPORT}</style>
+      <div className="max-w-[460px] sm:max-w-[640px] lg:max-w-[820px] w-full flex flex-col items-center justify-center px-8" style={{ background: colors.paper }}>
+        <p className="text-5xl mb-4">🧭</p>
+        <h1 style={{ fontFamily: serif, color: colors.ink }} className="text-2xl font-semibold mb-2 text-center">Welcome to Wayfarer</h1>
+        <p className="text-sm text-center mb-8" style={{ color: colors.charcoal, opacity: 0.7 }}>Sign in to plan trips, save albums, and keep it all where you left off.</p>
+        {error && <NoticeBanner notice={{ type: "error", text: error }} />}
+        <button onClick={signIn} disabled={loading} className="w-full py-3 rounded-full text-sm font-semibold flex items-center justify-center gap-2" style={{ background: colors.ink, color: colors.paper, opacity: loading ? 0.6 : 1 }}>
+          {loading ? "Redirecting…" : "🔒 Sign in with Google"}
+        </button>
+      </div>
+    </div>
+  );
+}
+export default function App() {
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) setAuthError(error.message);
+      setSession(data?.session || null);
+      setLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => listener?.subscription?.unsubscribe();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="w-full flex items-center justify-center app-viewport-frame" style={{ background: "#eee7d6" }}>
+        <style>{FONT_IMPORT}</style>
+        <p className="text-sm" style={{ color: colors.charcoal }}>Loading…</p>
+      </div>
+    );
+  }
+  if (!session) {
+    return <AuthScreen error={authError} />;
+  }
+  return <MainApp userEmail={session.user.email} onSignOut={() => supabase.auth.signOut()} />;
 }
