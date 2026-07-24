@@ -422,16 +422,10 @@ function AvatarDisplay({ av, size = 140, svgScale = 0.8, rounded = "rounded-2xl"
 function AiAvatarSection({ av, setAv }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [, forceTick] = useState(0);
   const fileInputRef = useRef(null);
 
-  const usedThisSession = sessionStorage.getItem("wf_avatar_gen_session") === "1";
-  const lastGenAt = parseInt(localStorage.getItem("wf_avatar_last_gen") || "0", 10);
-  const cooldownRemaining = Math.max(0, AVATAR_COOLDOWN_MS - (Date.now() - lastGenAt));
-  const blocked = usedThisSession || cooldownRemaining > 0;
-
   const generate = async (file) => {
-    if (!file || blocked) return;
+    if (!file) return;
     setLoading(true); setError("");
     try {
       const { base64, mediaType } = await fileToBase64(file);
@@ -445,9 +439,6 @@ function AiAvatarSection({ av, setAv }) {
       try { data = JSON.parse(raw); } catch { data = { error: `The server didn't return a valid response (status ${res.status}). This usually means the generate-avatar function crashed or isn't deployed correctly — check Vercel's Functions logs for details.` }; }
       if (!res.ok) throw new Error(data.error || "Something went wrong.");
       setAv((s) => ({ ...s, aiAvatarUrl: data.avatarDataUrl }));
-      sessionStorage.setItem("wf_avatar_gen_session", "1");
-      localStorage.setItem("wf_avatar_last_gen", String(Date.now()));
-      forceTick((t) => t + 1);
     } catch (e) {
       setError(e.message || "Couldn't generate an avatar. Try a different photo.");
     }
@@ -458,18 +449,15 @@ function AiAvatarSection({ av, setAv }) {
     <Section title="✨ AI Avatar — generated from your photo">
       <input ref={fileInputRef} type="file" accept="image/*" capture="user" className="hidden" onChange={(e) => generate(e.target.files?.[0])} />
       {error && <NoticeBanner notice={{ type: "error", text: error }} />}
-      {blocked && !loading && (
-        <NoticeBanner notice={{ type: "error", text: usedThisSession && cooldownRemaining <= 0 ? "You've used your generation for this session. Come back next visit." : `You can generate again in ${formatCooldownRemaining(cooldownRemaining)}.` }} />
-      )}
       <div className="flex gap-2 mb-1">
-        <button onClick={() => fileInputRef.current?.click()} disabled={loading || blocked} className="flex-1 py-2.5 rounded-xl text-xs font-semibold" style={{ background: colors.ink, color: colors.paper, opacity: loading || blocked ? 0.5 : 1 }}>
+        <button onClick={() => fileInputRef.current?.click()} disabled={loading} className="flex-1 py-2.5 rounded-xl text-xs font-semibold" style={{ background: colors.ink, color: colors.paper, opacity: loading ? 0.6 : 1 }}>
           {loading ? "Generating…" : av.aiAvatarUrl ? "📷 Regenerate from new photo" : "📷 Generate from a photo"}
         </button>
         {av.aiAvatarUrl && (
           <button onClick={() => setAv((s) => ({ ...s, aiAvatarUrl: null }))} disabled={loading} className="px-3 py-2.5 rounded-xl text-xs font-semibold" style={{ background: colors.paperDim, color: colors.charcoal }}>Remove</button>
         )}
       </div>
-      <p className="text-[10px]" style={{ color: colors.charcoal, opacity: 0.5 }}>Limited to 1 generation per visit, and once every 36 hours. Uses AI image generation on a photo you choose, billed to the connected OpenAI account.</p>
+      <p className="text-[10px]" style={{ color: colors.charcoal, opacity: 0.5 }}>Uses AI image generation on a photo you choose, billed to the connected OpenAI account.</p>
     </Section>
   );
 }
@@ -529,7 +517,7 @@ function HomeTab({ av, setAv, badgeStats, onOpenSelfProfile, onViewProfile }) {
           <p className="text-xs mt-1" style={{ color: colors.charcoal, opacity: 0.55 }}>{MY_PROFILE_ID}</p>
         </div>
       </div>
-      <div className="relative rounded-3xl flex items-end justify-between gap-2 px-4" style={{ height: 250, background: `linear-gradient(180deg, ${colors.paperDim} 0%, ${colors.paperDim} 65%, ${colors.ink}0d 65%, ${colors.ink}0d 100%)` }}>
+      <div className="relative rounded-3xl flex items-end justify-center px-4" style={{ height: 250, gap: 38, background: `linear-gradient(180deg, ${colors.paperDim} 0%, ${colors.paperDim} 65%, ${colors.ink}0d 65%, ${colors.ink}0d 100%)` }}>
         <div className="relative flex flex-col items-center shrink-0" style={{ width: 150 }}>
           <div className="absolute flex flex-col items-center" style={{ bottom: "calc(100% + 2px)", width: 140, left: "50%", transform: "translateX(-50%)" }}>
             {editing ? (
