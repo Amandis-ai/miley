@@ -188,7 +188,7 @@ function AvatarSVG({ av, scale = 1 }) {
 const DEFAULT_AVATAR = {
   skin: SKIN_TONES[1], hairColor: HAIR_COLORS[0], hairstyle: "bob", eyes: "Happy", brow: "Curved",
   eyeColor: EYE_COLORS[0], outfitColor: OUTFIT_COLORS[0].hex, glasses: "none", hat: "none",
-  background: "peach", accessories: [], holiday: null,
+  background: "peach", accessories: [], holiday: null, aiAvatarUrl: null,
 };
 
 /* ===========================================================
@@ -374,6 +374,46 @@ function ChatScreen({ person, onBack }) {
    HOME TAB
 =========================================================== */
 const SPEECH_LIMIT = 60;
+function AiAvatarSection({ av, setAv }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const fileInputRef = useRef(null);
+
+  const generate = async (file) => {
+    if (!file) return;
+    setLoading(true); setError("");
+    try {
+      const { base64, mediaType } = await fileToBase64(file);
+      const res = await fetch("/api/generate-avatar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: base64, mimeType: mediaType }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Something went wrong.");
+      setAv((s) => ({ ...s, aiAvatarUrl: data.avatarDataUrl }));
+    } catch (e) {
+      setError(e.message || "Couldn't generate an avatar. Try a different photo.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <Section title="✨ AI Avatar — generated from your photo">
+      <input ref={fileInputRef} type="file" accept="image/*" capture="user" className="hidden" onChange={(e) => generate(e.target.files?.[0])} />
+      {error && <NoticeBanner notice={{ type: "error", text: error }} />}
+      <div className="flex gap-2 mb-1">
+        <button onClick={() => fileInputRef.current?.click()} disabled={loading} className="flex-1 py-2.5 rounded-xl text-xs font-semibold" style={{ background: colors.ink, color: colors.paper, opacity: loading ? 0.6 : 1 }}>
+          {loading ? "Generating…" : av.aiAvatarUrl ? "📷 Regenerate from new photo" : "📷 Generate from a photo"}
+        </button>
+        {av.aiAvatarUrl && (
+          <button onClick={() => setAv((s) => ({ ...s, aiAvatarUrl: null }))} disabled={loading} className="px-3 py-2.5 rounded-xl text-xs font-semibold" style={{ background: colors.paperDim, color: colors.charcoal }}>Remove</button>
+        )}
+      </div>
+      <p className="text-[10px]" style={{ color: colors.charcoal, opacity: 0.5 }}>Uses AI image generation on a photo you choose. This costs a small amount on your connected OpenAI account per generation.</p>
+    </Section>
+  );
+}
 function AccessorizePanel({ av, setAv, onClose }) {
   const set = (patch) => setAv((s) => ({ ...s, ...patch }));
   const toggleAcc = (key) => setAv((s) => ({ ...s, accessories: s.accessories.includes(key) ? s.accessories.filter((k) => k !== key) : [...s.accessories, key] }));
@@ -384,8 +424,11 @@ function AccessorizePanel({ av, setAv, onClose }) {
           <span style={{ fontFamily: serif, color: colors.ink }} className="text-lg font-semibold">Customize</span>
           <button onClick={onClose} className="text-xl">✕</button>
         </div>
-        <div className="flex justify-center mb-4 rounded-2xl py-3" style={{ background: colors.paperDim }}><AvatarSVG av={av} scale={0.8} /></div>
-        <p className="text-[11px] mb-4 text-center" style={{ color: colors.charcoal, opacity: 0.5 }}>Your look was generated from your one-time facial scan. Outfits, accessories & props can be changed anytime.</p>
+        <div className="flex justify-center mb-4 rounded-2xl py-3" style={{ background: colors.paperDim }}>
+          {av.aiAvatarUrl ? <img src={av.aiAvatarUrl} alt="Your AI avatar" className="rounded-2xl" style={{ width: 140, height: 140, objectFit: "cover" }} /> : <AvatarSVG av={av} scale={0.8} />}
+        </div>
+        <p className="text-[11px] mb-4 text-center" style={{ color: colors.charcoal, opacity: 0.5 }}>{av.aiAvatarUrl ? "Using your AI-generated avatar." : "Your look was generated from your one-time facial scan."} Outfits, accessories & props can be changed anytime.</p>
+        <AiAvatarSection av={av} setAv={setAv} />
         <Section title="Holiday Outfits — unlocked by country">
           <div className="flex flex-wrap gap-2 mb-1">
             <Chip active={!av.holiday} onClick={() => set({ holiday: null })}>Everyday</Chip>
@@ -442,7 +485,9 @@ function HomeTab({ av, setAv, badgeStats, onOpenSelfProfile, onViewProfile }) {
             )}
             <div style={{ width: 0, height: 0, borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderTop: "7px solid #fff", marginTop: -1 }} />
           </div>
-          <button onClick={onOpenSelfProfile} className="relative hover:scale-105 transition-transform"><AvatarSVG av={av} scale={0.62} /></button>
+          <button onClick={onOpenSelfProfile} className="relative hover:scale-105 transition-transform">
+            {av.aiAvatarUrl ? <img src={av.aiAvatarUrl} alt="Your avatar" className="rounded-full" style={{ width: 118, height: 118, objectFit: "cover" }} /> : <AvatarSVG av={av} scale={0.62} />}
+          </button>
           <button onClick={() => setShowCustomize(true)} className="absolute rounded-full flex items-center justify-center" style={{ width: 26, height: 26, background: colors.ink, right: 6, bottom: 8, zIndex: 40 }}>
             <span style={{ fontSize: 12 }}>✏️</span>
           </button>
