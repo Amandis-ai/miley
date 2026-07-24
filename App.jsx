@@ -856,7 +856,7 @@ function fileToBase64(file) {
   });
 }
 async function extractReceiptWithAI(base64, mediaType) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("/api/claude-proxy", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -959,7 +959,7 @@ const EXCHANGE_RATES = {
   AED: 3.67, SAR: 3.75, ZAR: 18.6, BRL: 5.4, MXN: 18.2, ISK: 138, EGP: 48.5, TRY: 34.5, PLN: 4.0, SEK: 10.8, NOK: 11.0, DKK: 6.9,
 };
 async function lookupCurrencyWithAI(query) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("/api/claude-proxy", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
