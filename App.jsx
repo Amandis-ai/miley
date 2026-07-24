@@ -2001,7 +2001,7 @@ function ReelCard({ photos, reel, onSave, readOnly, canSeePrivate = true }) {
                   className="rounded-xl flex items-center justify-center text-2xl shrink-0 transition-transform"
                   style={{ width: 52, height: 52, background: active ? colors.coral : "rgba(255,255,255,0.1)", transform: active ? "scale(1.12)" : "scale(1)" }}
                 >
-                  {hidden ? "🔒" : p.thumb}
+                  {hidden ? "🔒" : <PhotoThumb thumb={p.thumb} />}
                 </div>
               );
             })}
@@ -2087,7 +2087,13 @@ function DayBanner({ title, subtitle, count, emoji, onClick, tone }) {
     </button>
   );
 }
-function TripAlbumDetail({ trip, onUpdateTrip, onBack }) {
+function PhotoThumb({ thumb, className = "" }) {
+  if (typeof thumb === "string" && thumb.startsWith("http")) {
+    return <img src={thumb} alt="" className={`w-full h-full object-cover ${className}`} />;
+  }
+  return <>{thumb}</>;
+}
+function TripAlbumDetail({ trip, onUpdateTrip, onBack, accessToken }) {
   const [tabView, setTabView] = useState("view"); // view | upload | itinerary
   const [uploadMode, setUploadMode] = useState("mass");
   const [editingId, setEditingId] = useState(null);
@@ -2101,19 +2107,71 @@ function TripAlbumDetail({ trip, onUpdateTrip, onBack }) {
   const hasDayOrg = groups.some((g) => g.photos.length > 0);
 
   const setPhotos = (updater) => onUpdateTrip({ ...trip, photos: typeof updater === "function" ? updater(photos) : updater });
-  const addPhotos = (dayId, count = 1) => {
-    const room = MAX_ALBUM_ITEMS - photos.length;
-    const n = Math.max(0, Math.min(count, room));
-    if (n === 0) return;
-    const newItems = Array.from({ length: n }, (_, i) => {
-      const id = nextId.current++;
-      return { id, type: "photo", thumb: PLACEHOLDER_THUMBS[(photos.length + i) % PLACEHOLDER_THUMBS.length], caption: "", date: formatDDMMYY(new Date()), likes: 0, likedByMe: false, duplicateOf: null, dayId: dayId || null, private: false };
-    });
-    setPhotos((prev) => [...newItems, ...prev]);
-    setEditingId(newItems[0].id);
-    setTabView("view");
-    setOpenDayId(dayId || null);
-    setViewAll(!dayId);
+  const [uploading, setUploading] = useState(false);
+  const [uploadNotice, setUploadNotice] = useState(null);
+
+  // Load any previously-uploaded (real, Drive-backed) photos for this trip on open,
+  // so they're still here after a refresh — merged in alongside any seed/demo photos.
+  useEffect(() => {
+    if (!accessToken) return;
+    supabase
+      .from("photos")
+      .select("*")
+      .eq("trip_id", String(trip.id))
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (error || !data || data.length === 0) return;
+        setPhotos((prev) => {
+          const existingDriveIds = new Set(prev.filter((p) => p.driveFileId).map((p) => p.driveFileId));
+          const toAdd = data
+            .filter((row) => !existingDriveIds.has(row.drive_file_id))
+            .map((row) => ({
+              id: `drive-${row.id}`, type: "photo", thumb: row.drive_view_url, caption: row.caption || "",
+              date: formatDDMMYY(new Date(row.created_at)), likes: 0, likedByMe: false, duplicateOf: null,
+              dayId: row.day_id ? Number(row.day_id) : null, private: row.is_private, driveFileId: row.drive_file_id,
+            }));
+          return toAdd.length ? [...toAdd, ...prev] : prev;
+        });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip.id, accessToken]);
+
+  const uploadFiles = async (fileList, dayId) => {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+    if (!accessToken) { setUploadNotice({ type: "error", text: "You need to be signed in to upload." }); return; }
+    setUploading(true); setUploadNotice(null);
+    let successCount = 0;
+    for (const file of files) {
+      try {
+        const { base64, mediaType } = await fileToBase64(file);
+        const res = await fetch("/api/drive-upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accessToken, imageBase64: base64, mimeType: mediaType, fileName: file.name, tripId: trip.id, dayId: dayId || null }),
+        });
+        const raw = await res.text();
+        let data; try { data = JSON.parse(raw); } catch { data = { error: `Upload failed (status ${res.status}).` }; }
+        if (!res.ok) throw new Error(data.error || "Upload failed.");
+        const row = data.photo;
+        const newPhoto = {
+          id: `drive-${row.id}`, type: "photo", thumb: row.drive_view_url, caption: "",
+          date: formatDDMMYY(new Date()), likes: 0, likedByMe: false, duplicateOf: null,
+          dayId: dayId || null, private: false, driveFileId: row.drive_file_id,
+        };
+        setPhotos((prev) => [newPhoto, ...prev]);
+        successCount++;
+      } catch (e) {
+        setUploadNotice({ type: "error", text: e.message || "Something went wrong uploading a photo." });
+      }
+    }
+    setUploading(false);
+    if (successCount > 0) {
+      setUploadNotice({ type: "success", text: `✓ ${successCount} photo${successCount > 1 ? "s" : ""} saved to your Google Drive.` });
+      setTabView("view");
+      setOpenDayId(dayId || null);
+      setViewAll(!dayId);
+    }
   };
   const updateCaption = (id, caption) => setPhotos((prev) => prev.map((a) => (a.id === id ? { ...a, caption } : a)));
   const toggleLike = (id) => setPhotos((prev) => prev.map((a) => (a.id === id ? { ...a, likedByMe: !a.likedByMe, likes: a.likes + (a.likedByMe ? -1 : 1) } : a)));
@@ -2126,7 +2184,7 @@ function TripAlbumDetail({ trip, onUpdateTrip, onBack }) {
       <button onClick={() => togglePrivate(item.id)} className="absolute top-2 right-2 z-10 rounded-full px-1.5 py-0.5 text-[10px] flex items-center gap-0.5" style={{ background: item.private ? colors.stampRed : "rgba(255,255,255,0.9)", color: item.private ? "#fff" : colors.charcoal }}>
         {item.private ? "🔒 Private" : "🌐 Public"}
       </button>
-      <div className="flex items-center justify-center text-4xl relative" style={{ height: 100, background: colors.paperDim }}>{item.thumb}{item.type === "video" && <span className="absolute bottom-1 right-1 text-[10px] bg-black/60 text-white px-1 rounded">▶ video</span>}</div>
+      <div className="flex items-center justify-center text-4xl relative" style={{ height: 100, background: colors.paperDim }}><PhotoThumb thumb={item.thumb} />{item.type === "video" && <span className="absolute bottom-1 right-1 text-[10px] bg-black/60 text-white px-1 rounded">▶ video</span>}</div>
       <div className="px-2.5 pt-2 pb-2.5">
         <div className="text-[10px] mb-1" style={{ color: colors.charcoal, opacity: 0.5, fontFamily: mono }}>{item.date}</div>
         {editingId === item.id ? <input autoFocus value={item.caption} onChange={(e) => updateCaption(item.id, e.target.value)} onBlur={() => setEditingId(null)} onKeyDown={(e) => e.key === "Enter" && setEditingId(null)} placeholder="Write a caption..." className="text-xs w-full outline-none border-b pb-0.5 mb-1" style={{ color: colors.charcoal, borderColor: colors.ink + "30" }} /> : <button onClick={() => setEditingId(item.id)} className="text-left w-full mb-1"><span className="text-xs" style={{ color: item.caption ? colors.charcoal : colors.charcoal + "80" }}>{item.caption || "Add a caption..."}</span></button>}
@@ -2180,15 +2238,22 @@ function TripAlbumDetail({ trip, onUpdateTrip, onBack }) {
               <button key={key} onClick={() => setUploadMode(key)} className="flex-1 py-2 rounded-full text-sm font-medium" style={{ background: uploadMode === key ? colors.ink : "transparent", color: uploadMode === key ? colors.paper : colors.charcoal }}>{label}</button>
             ))}
           </div>
+          <NoticeBanner notice={uploadNotice} />
           {uploadMode === "mass" ? (
-            <button onClick={() => addPhotos(null, 3)} className="w-full py-3 rounded-2xl text-sm font-semibold mb-4 border-2 border-dashed" style={{ borderColor: colors.ink + "40", color: colors.ink }}>📷 Choose files — uploads into the album, unsorted</button>
+            <label className="w-full py-3 rounded-2xl text-sm font-semibold mb-4 border-2 border-dashed flex items-center justify-center" style={{ borderColor: colors.ink + "40", color: colors.ink, opacity: uploading ? 0.5 : 1 }}>
+              {uploading ? "Uploading…" : "📷 Choose files — saved to your Google Drive"}
+              <input type="file" accept="image/*" multiple className="hidden" disabled={uploading} onChange={(e) => uploadFiles(e.target.files, null)} />
+            </label>
           ) : (
             <div className="mb-4">
               <p className="text-[11px] mb-2" style={{ color: colors.charcoal, opacity: 0.5 }}>Select multiple files per day — they'll be tagged and shown chronologically.</p>
               {trip.days.map((d) => (
                 <div key={d.id} className="flex items-center justify-between py-2.5" style={{ borderBottom: `1px solid ${colors.ink}12` }}>
                   <div><div className="text-sm font-medium" style={{ color: colors.ink }}>Day {d.id} · {d.city}</div><div className="text-xs" style={{ color: colors.charcoal, opacity: 0.55, fontFamily: mono }}>{d.date}</div></div>
-                  <button onClick={() => addPhotos(d.id, 3)} className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: colors.lagoon, color: "#fff" }}>📷 Mass upload</button>
+                  <label className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ background: colors.lagoon, color: "#fff", opacity: uploading ? 0.5 : 1 }}>
+                    {uploading ? "Uploading…" : "📷 Upload"}
+                    <input type="file" accept="image/*" multiple className="hidden" disabled={uploading} onChange={(e) => uploadFiles(e.target.files, d.id)} />
+                  </label>
                 </div>
               ))}
             </div>
@@ -2245,7 +2310,7 @@ function AllAlbumsView({ trips, onOpenTrip, onBack }) {
     </div>
   );
 }
-function AlbumTab({ trips, setTrips }) {
+function AlbumTab({ trips, setTrips, accessToken }) {
   const [openTripId, setOpenTripId] = useState(null);
   const [viewAll, setViewAll] = useState(false);
   const years = trips.map(getTripYear);
@@ -2259,7 +2324,7 @@ function AlbumTab({ trips, setTrips }) {
 
   const openTrip = trips.find((t) => t.id === openTripId);
   if (openTrip) {
-    return <TripAlbumDetail trip={openTrip} onUpdateTrip={(updated) => setTrips((ts) => ts.map((t) => (t.id === updated.id ? updated : t)))} onBack={() => setOpenTripId(null)} />;
+    return <TripAlbumDetail trip={openTrip} onUpdateTrip={(updated) => setTrips((ts) => ts.map((t) => (t.id === updated.id ? updated : t)))} onBack={() => setOpenTripId(null)} accessToken={accessToken} />;
   }
   if (viewAll) return <AllAlbumsView trips={trips} onOpenTrip={(id) => { setViewAll(false); setOpenTripId(id); }} onBack={() => setViewAll(false)} />;
 
@@ -2513,7 +2578,7 @@ function TheirTripView({ trip, friendStatus, onBack }) {
     return (
       <div key={p.id} className="rounded-2xl overflow-hidden" style={{ background: "#fff", boxShadow: "0 2px 8px rgba(22,35,61,0.08)" }}>
         <div className="flex items-center justify-center text-4xl relative" style={{ height: 100, background: colors.paperDim }}>
-          {hidden ? <span className="text-2xl">🔒</span> : p.thumb}
+          {hidden ? <span className="text-2xl">🔒</span> : <PhotoThumb thumb={p.thumb} />}
         </div>
         <div className="px-2.5 py-2">
           <div className="text-xs mb-1" style={{ color: colors.charcoal }}>{hidden ? "Private — friends only" : p.caption}</div>
@@ -2595,7 +2660,7 @@ function TheirAllAlbumsView({ person, onOpenTrip, onBack }) {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pb-8">
         {trips.map((trip) => (
           <button key={trip.id} onClick={() => onOpenTrip(trip)} className="rounded-2xl overflow-hidden text-left" style={{ background: "#fff", boxShadow: "0 2px 8px rgba(22,35,61,0.08)" }}>
-            <div className="flex items-center justify-center text-4xl" style={{ height: 100, background: colors.paperDim }}>{trip.photos?.[0]?.thumb || "📷"}</div>
+            <div className="flex items-center justify-center text-4xl" style={{ height: 100, background: colors.paperDim }}><PhotoThumb thumb={trip.photos?.[0]?.thumb || "📷"} /></div>
             <div className="px-2.5 py-2">
               <div className="text-xs font-semibold truncate" style={{ color: colors.ink }}>{trip.name}</div>
               <div className="text-[10px]" style={{ color: colors.charcoal, opacity: 0.55 }}>{(trip.photos || []).length} photos</div>
@@ -2656,7 +2721,7 @@ function TheirProfilePage({ person, status, onBack }) {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pb-8">
               {filteredTrips.map((trip) => (
                 <button key={trip.id} onClick={() => setOpenTrip(trip)} className="rounded-2xl overflow-hidden text-left" style={{ background: "#fff", boxShadow: "0 2px 8px rgba(22,35,61,0.08)" }}>
-                  <div className="flex items-center justify-center text-4xl" style={{ height: 100, background: colors.paperDim }}>{trip.photos?.[0]?.thumb || "📷"}</div>
+                  <div className="flex items-center justify-center text-4xl" style={{ height: 100, background: colors.paperDim }}><PhotoThumb thumb={trip.photos?.[0]?.thumb || "📷"} /></div>
                   <div className="px-2.5 py-2">
                     <div className="text-xs font-semibold truncate" style={{ color: colors.ink }}>{trip.name}</div>
                     <div className="text-[10px]" style={{ color: colors.charcoal, opacity: 0.55 }}>{(trip.photos || []).length} photos</div>
@@ -2720,7 +2785,7 @@ if (typeof document !== "undefined") {
     meta.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover");
   })();
 }
-function MainApp({ userEmail, onSignOut }) {
+function MainApp({ userEmail, accessToken, onSignOut }) {
   const [tab, setTab] = useState("home");
   const [trips, setTrips] = useState(seedTrips);
   const [av, setAv] = useState(DEFAULT_AVATAR);
@@ -2751,7 +2816,7 @@ function MainApp({ userEmail, onSignOut }) {
         <div className="h-full pb-20" style={{ background: colors.paper, fontFamily: sans, overflowY: "auto", overflowX: "hidden", width: "100%", boxSizing: "border-box" }}>
           {tab === "home" && <HomeTab av={av} setAv={setAv} badgeStats={badgeStats} onOpenSelfProfile={() => setProfileModal({ person: myProfile, self: true })} onViewProfile={() => setShowMyProfile(true)} />}
           {tab === "trips" && <TripsTab trips={trips} setTrips={setTrips} />}
-          {tab === "album" && <AlbumTab trips={trips} setTrips={setTrips} />}
+          {tab === "album" && <AlbumTab trips={trips} setTrips={setTrips} accessToken={accessToken} />}
           {tab === "social" && <SocialTab relationships={relationships} onOpenProfile={(p) => setProfileModal({ person: p, self: false })} onSimulateAccept={simulateAccept} />}
         </div>
         <BottomNav tab={tab} setTab={setTab} />
@@ -2799,7 +2864,11 @@ function AuthScreen({ error }) {
     setLoading(true);
     const { error: err } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin },
+      options: {
+        redirectTo: window.location.origin,
+        scopes: "https://www.googleapis.com/auth/drive.file",
+        queryParams: { access_type: "offline", prompt: "consent" },
+      },
     });
     if (err) setLoading(false);
   };
@@ -2822,6 +2891,7 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState("");
+  const [driveStatus, setDriveStatus] = useState(""); // "", "saving", "saved", "error"
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data, error }) => {
@@ -2835,6 +2905,22 @@ export default function App() {
     return () => listener?.subscription?.unsubscribe();
   }, []);
 
+  // If this session came with a fresh Google Drive refresh token (only present
+  // right after a new consent), save it server-side so uploads keep working.
+  useEffect(() => {
+    const refreshToken = session?.provider_refresh_token;
+    if (!refreshToken || !session?.access_token) return;
+    setDriveStatus("saving");
+    fetch("/api/save-google-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessToken: session.access_token, refreshToken }),
+    })
+      .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+      .then(({ ok }) => setDriveStatus(ok ? "saved" : "error"))
+      .catch(() => setDriveStatus("error"));
+  }, [session?.provider_refresh_token]);
+
   if (loading) {
     return (
       <div className="w-full flex items-center justify-center app-viewport-frame" style={{ background: "#eee7d6" }}>
@@ -2846,5 +2932,5 @@ export default function App() {
   if (!session) {
     return <AuthScreen error={authError} />;
   }
-  return <MainApp userEmail={session.user.email} onSignOut={() => supabase.auth.signOut()} />;
+  return <MainApp userEmail={session.user.email} accessToken={session.access_token} onSignOut={() => supabase.auth.signOut()} />;
 }
