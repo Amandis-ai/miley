@@ -188,7 +188,7 @@ function AvatarSVG({ av, scale = 1 }) {
 const DEFAULT_AVATAR = {
   skin: SKIN_TONES[1], hairColor: HAIR_COLORS[0], hairstyle: "bob", eyes: "Happy", brow: "Curved",
   eyeColor: EYE_COLORS[0], outfitColor: OUTFIT_COLORS[0].hex, glasses: "none", hat: "none",
-  background: "peach", accessories: [], holiday: null, aiAvatarUrl: null,
+  background: "peach", accessories: [], holiday: null, aiAvatarUrl: null, floatingEmojis: [],
 };
 
 /* ===========================================================
@@ -374,13 +374,56 @@ function ChatScreen({ person, onBack }) {
    HOME TAB
 =========================================================== */
 const SPEECH_LIMIT = 60;
+const AVATAR_COOLDOWN_MS = 36 * 60 * 60 * 1000; // 36 hours
+function formatCooldownRemaining(ms) {
+  const hours = Math.floor(ms / (60 * 60 * 1000));
+  const mins = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000));
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
+const TRAVEL_EMOJIS = ["✈️", "🌴", "🧳", "📸", "🗺️", "⛱️", "🏔️", "🎒", "🚂", "🛳️", "🌍", "🧭", "🎫", "🚗", "🏕️", "🍹"];
+const MAX_FLOATING_EMOJIS = 4;
+function FloatingEmojis({ emojis }) {
+  if (!emojis || emojis.length === 0) return null;
+  const positions = [
+    { top: "-4%", left: "12%" }, { top: "-14%", left: "50%" }, { top: "-4%", left: "88%" }, { top: "16%", left: "97%" },
+  ];
+  return (
+    <>
+      {emojis.slice(0, MAX_FLOATING_EMOJIS).map((e, i) => (
+        <span key={i} className="absolute figure-bounce" style={{ ...positions[i % positions.length], transform: "translate(-50%,-50%)", fontSize: 22, animationDelay: `${i * 0.3}s`, zIndex: 20, filter: "drop-shadow(0 2px 3px rgba(22,35,61,0.25))" }}>{e}</span>
+      ))}
+    </>
+  );
+}
+function AvatarDisplay({ av, size = 140, svgScale = 0.8, rounded = "rounded-2xl" }) {
+  const isAi = !!av.aiAvatarUrl;
+  const w = isAi ? size : 240 * svgScale;
+  const h = isAi ? size : 280 * svgScale;
+  return (
+    <div className="relative inline-block" style={{ width: w, height: h }}>
+      {isAi ? (
+        <img src={av.aiAvatarUrl} alt="Your avatar" className={rounded} style={{ width: size, height: size, objectFit: "cover" }} />
+      ) : (
+        <AvatarSVG av={av} scale={svgScale} />
+      )}
+      <FloatingEmojis emojis={av.floatingEmojis} />
+    </div>
+  );
+}
 function AiAvatarSection({ av, setAv }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [, forceTick] = useState(0);
   const fileInputRef = useRef(null);
 
+  const usedThisSession = sessionStorage.getItem("wf_avatar_gen_session") === "1";
+  const lastGenAt = parseInt(localStorage.getItem("wf_avatar_last_gen") || "0", 10);
+  const cooldownRemaining = Math.max(0, AVATAR_COOLDOWN_MS - (Date.now() - lastGenAt));
+  const blocked = usedThisSession || cooldownRemaining > 0;
+
   const generate = async (file) => {
-    if (!file) return;
+    if (!file || blocked) return;
     setLoading(true); setError("");
     try {
       const { base64, mediaType } = await fileToBase64(file);
@@ -389,9 +432,14 @@ function AiAvatarSection({ av, setAv }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageBase64: base64, mimeType: mediaType }),
       });
-      const data = await res.json();
+      const raw = await res.text();
+      let data;
+      try { data = JSON.parse(raw); } catch { data = { error: `The server didn't return a valid response (status ${res.status}). This usually means the generate-avatar function crashed or isn't deployed correctly — check Vercel's Functions logs for details.` }; }
       if (!res.ok) throw new Error(data.error || "Something went wrong.");
       setAv((s) => ({ ...s, aiAvatarUrl: data.avatarDataUrl }));
+      sessionStorage.setItem("wf_avatar_gen_session", "1");
+      localStorage.setItem("wf_avatar_last_gen", String(Date.now()));
+      forceTick((t) => t + 1);
     } catch (e) {
       setError(e.message || "Couldn't generate an avatar. Try a different photo.");
     }
@@ -402,21 +450,27 @@ function AiAvatarSection({ av, setAv }) {
     <Section title="✨ AI Avatar — generated from your photo">
       <input ref={fileInputRef} type="file" accept="image/*" capture="user" className="hidden" onChange={(e) => generate(e.target.files?.[0])} />
       {error && <NoticeBanner notice={{ type: "error", text: error }} />}
+      {blocked && !loading && (
+        <NoticeBanner notice={{ type: "error", text: usedThisSession && cooldownRemaining <= 0 ? "You've used your generation for this session. Come back next visit." : `You can generate again in ${formatCooldownRemaining(cooldownRemaining)}.` }} />
+      )}
       <div className="flex gap-2 mb-1">
-        <button onClick={() => fileInputRef.current?.click()} disabled={loading} className="flex-1 py-2.5 rounded-xl text-xs font-semibold" style={{ background: colors.ink, color: colors.paper, opacity: loading ? 0.6 : 1 }}>
+        <button onClick={() => fileInputRef.current?.click()} disabled={loading || blocked} className="flex-1 py-2.5 rounded-xl text-xs font-semibold" style={{ background: colors.ink, color: colors.paper, opacity: loading || blocked ? 0.5 : 1 }}>
           {loading ? "Generating…" : av.aiAvatarUrl ? "📷 Regenerate from new photo" : "📷 Generate from a photo"}
         </button>
         {av.aiAvatarUrl && (
           <button onClick={() => setAv((s) => ({ ...s, aiAvatarUrl: null }))} disabled={loading} className="px-3 py-2.5 rounded-xl text-xs font-semibold" style={{ background: colors.paperDim, color: colors.charcoal }}>Remove</button>
         )}
       </div>
-      <p className="text-[10px]" style={{ color: colors.charcoal, opacity: 0.5 }}>Uses AI image generation on a photo you choose. This costs a small amount on your connected OpenAI account per generation.</p>
+      <p className="text-[10px]" style={{ color: colors.charcoal, opacity: 0.5 }}>Limited to 1 generation per visit, and once every 36 hours. Uses AI image generation on a photo you choose, billed to the connected OpenAI account.</p>
     </Section>
   );
 }
 function AccessorizePanel({ av, setAv, onClose }) {
-  const set = (patch) => setAv((s) => ({ ...s, ...patch }));
-  const toggleAcc = (key) => setAv((s) => ({ ...s, accessories: s.accessories.includes(key) ? s.accessories.filter((k) => k !== key) : [...s.accessories, key] }));
+  const toggleEmoji = (e) => setAv((s) => {
+    if (s.floatingEmojis.includes(e)) return { ...s, floatingEmojis: s.floatingEmojis.filter((x) => x !== e) };
+    if (s.floatingEmojis.length >= MAX_FLOATING_EMOJIS) return s;
+    return { ...s, floatingEmojis: [...s.floatingEmojis, e] };
+  });
   return (
     <div className="absolute inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(22,35,61,0.5)", overflowX: "hidden" }}>
       <div className="w-full max-w-[460px] sm:max-w-[640px] lg:max-w-[820px] rounded-t-3xl px-5 py-5" style={{ background: colors.paper, maxHeight: "85%", overflowY: "auto" }}>
@@ -425,24 +479,18 @@ function AccessorizePanel({ av, setAv, onClose }) {
           <button onClick={onClose} className="text-xl">✕</button>
         </div>
         <div className="flex justify-center mb-4 rounded-2xl py-3" style={{ background: colors.paperDim }}>
-          {av.aiAvatarUrl ? <img src={av.aiAvatarUrl} alt="Your AI avatar" className="rounded-2xl" style={{ width: 140, height: 140, objectFit: "cover" }} /> : <AvatarSVG av={av} scale={0.8} />}
+          <AvatarDisplay av={av} size={140} svgScale={0.8} />
         </div>
-        <p className="text-[11px] mb-4 text-center" style={{ color: colors.charcoal, opacity: 0.5 }}>{av.aiAvatarUrl ? "Using your AI-generated avatar." : "Your look was generated from your one-time facial scan."} Outfits, accessories & props can be changed anytime.</p>
+        <p className="text-[11px] mb-4 text-center" style={{ color: colors.charcoal, opacity: 0.5 }}>{av.aiAvatarUrl ? "Using your AI-generated avatar." : "Your look was generated from your one-time facial scan."}</p>
         <AiAvatarSection av={av} setAv={setAv} />
-        <Section title="Holiday Outfits — unlocked by country">
-          <div className="flex flex-wrap gap-2 mb-1">
-            <Chip active={!av.holiday} onClick={() => set({ holiday: null })}>Everyday</Chip>
-            {COUNTRY_OUTFITS.map((c) => {
-              const unlocked = VISITED_COUNTRIES.some((v) => v.name === c.country);
-              return <Chip key={c.key} active={av.holiday === c.key} disabled={!unlocked} onClick={() => unlocked && set({ holiday: c.key })}>{c.flag} {c.country}{!unlocked && " 🔒"}</Chip>;
-            })}
+        <Section title="✈️ Travel Emoticons — hover over your avatar">
+          <div className="flex flex-wrap gap-2">
+            {TRAVEL_EMOJIS.map((e) => (
+              <button key={e} onClick={() => toggleEmoji(e)} disabled={!av.floatingEmojis.includes(e) && av.floatingEmojis.length >= MAX_FLOATING_EMOJIS} className="w-10 h-10 rounded-full flex items-center justify-center text-lg" style={{ background: av.floatingEmojis.includes(e) ? colors.ink : colors.paperDim, opacity: !av.floatingEmojis.includes(e) && av.floatingEmojis.length >= MAX_FLOATING_EMOJIS ? 0.4 : 1 }}>{e}</button>
+            ))}
           </div>
+          <p className="text-[10px] mt-2" style={{ color: colors.charcoal, opacity: 0.5 }}>Pick up to {MAX_FLOATING_EMOJIS}. They'll float above your avatar wherever it appears.</p>
         </Section>
-        {!av.holiday && <Section title="Outfit Color"><div className="flex flex-wrap gap-2">{OUTFIT_COLORS.map((c) => <Swatch key={c.name} hex={c.hex} label={c.name} active={av.outfitColor === c.hex} onClick={() => set({ outfitColor: c.hex })} />)}</div></Section>}
-        <Section title="Glasses"><div className="flex flex-wrap gap-2">{GLASSES.map((g) => <Chip key={g.key} active={av.glasses === g.key} onClick={() => set({ glasses: g.key })}>{g.label}</Chip>)}</div></Section>
-        <Section title="Hat"><div className="flex flex-wrap gap-2">{HATS.map((h) => <Chip key={h.key} active={av.hat === h.key} onClick={() => set({ hat: h.key })}>{h.label}</Chip>)}</div></Section>
-        <Section title="Travel Props"><div className="flex flex-wrap gap-2">{ACCESSORY_OPTIONS.map((a) => <Chip key={a.key} active={av.accessories.includes(a.key)} onClick={() => toggleAcc(a.key)}><span>{a.emoji}</span>{a.label}</Chip>)}</div></Section>
-        <Section title="Background"><div className="flex flex-wrap gap-2">{BACKGROUNDS.map((b) => <Swatch key={b.key} hex={b.hex} label={b.label} active={av.background === b.key} onClick={() => set({ background: b.key })} />)}</div></Section>
         <button onClick={onClose} className="w-full py-3 rounded-full text-sm font-semibold mt-2" style={{ background: colors.coral, color: "#fff" }}>Done</button>
       </div>
     </div>
@@ -486,7 +534,7 @@ function HomeTab({ av, setAv, badgeStats, onOpenSelfProfile, onViewProfile }) {
             <div style={{ width: 0, height: 0, borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderTop: "7px solid #fff", marginTop: -1 }} />
           </div>
           <button onClick={onOpenSelfProfile} className="relative hover:scale-105 transition-transform">
-            {av.aiAvatarUrl ? <img src={av.aiAvatarUrl} alt="Your avatar" className="rounded-full" style={{ width: 118, height: 118, objectFit: "cover" }} /> : <AvatarSVG av={av} scale={0.62} />}
+            <AvatarDisplay av={av} size={118} svgScale={0.62} rounded="rounded-full" />
           </button>
           <button onClick={() => setShowCustomize(true)} className="absolute rounded-full flex items-center justify-center" style={{ width: 26, height: 26, background: colors.ink, right: 6, bottom: 8, zIndex: 40 }}>
             <span style={{ fontSize: 12 }}>✏️</span>
